@@ -1,45 +1,14 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <QDebug>
+#include <QMessageBox>
 
-#include <windows.h>
+#include "winsystemcommand.h"
 
-BOOL SystemControl( MainWindow::Option option )
+enum Option
 {
-    HANDLE hToken; // указатель на идентификатор процесса
-    TOKEN_PRIVILEGES tkp; // указатель на идентифицирующую структуру
-    // получение идентификатора текущего процесса, для получения прав на отключение
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
-        return FALSE;
-
-    // Полчение LUID
-    LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
-    tkp.PrivilegeCount = 1; // установка одной привелегии
-    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-    //Установка привелегии отключения для этого процесса.
-    AdjustTokenPrivileges(hToken, FALSE, &tkp, 0,(PTOKEN_PRIVILEGES) NULL, 0);
-
-    // Если ошибка то выход.
-    if (GetLastError() != ERROR_SUCCESS)
-        return FALSE;
-
-    if ( option == MainWindow::PowerOff )
-        ExitWindowsEx( EWX_POWEROFF, 0 );
-
-    //перезагрузка
-    if ( option == MainWindow::Reboot )
-        ExitWindowsEx(EWX_REBOOT, 0);
-
-    //выключение
-    if ( option == MainWindow::Shutdown )
-        ExitWindowsEx(EWX_SHUTDOWN, 0);
-
-    // Отменить привилегии отключения.
-    tkp.Privileges[0].Attributes = 0;
-    AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, (PTOKEN_PRIVILEGES) NULL, 0);
-    return TRUE;
-}
+    ToQuitProgram // Закрытие Планировщика и отсылка определенного сигнала.
+};
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -52,12 +21,14 @@ MainWindow::MainWindow(QWidget *parent) :
     // Заполнение вариантов действий.
     {
         ui->options->addItem( tr( "To quit the program" ), ToQuitProgram );
-        ui->options->addItem( tr( "Power off" ),           PowerOff );
-        ui->options->addItem( tr( "Reboot" ),              Reboot  );
-        ui->options->addItem( tr( "Force" ),               Force );
-        ui->options->addItem( tr( "Shutdown" ),            Shutdown );
-        ui->options->addItem( tr( "Log off" ),             LogOff );
-        ui->options->addItem( tr( "Screen off" ),          ScreenOff );
+        ui->options->addItem( tr( "Power off" ),           WinSystemCommand::PowerOff );
+        ui->options->addItem( tr( "Reboot" ),              WinSystemCommand::Reboot  );
+        ui->options->addItem( tr( "Force" ),               WinSystemCommand::Force );
+        ui->options->addItem( tr( "Shutdown" ),            WinSystemCommand::Shutdown );
+        ui->options->addItem( tr( "Log off" ),             WinSystemCommand::LogOff );
+        ui->options->addItem( tr( "Hibernate" ),           WinSystemCommand::Hibernate );
+        ui->options->addItem( tr( "Suspend" ),             WinSystemCommand::Suspend );
+        ui->options->addItem( tr( "Screen off" ),          WinSystemCommand::ScreenOff );
 
         ui->options->setCurrentIndex( ui->options->findData( ToQuitProgram ) );
     }
@@ -83,7 +54,7 @@ void MainWindow::on_completionOfWork_toggled(bool checked)
 }
 void MainWindow::on_buttonBox_clicked(QAbstractButton * button)
 {
-    QDialogButtonBox::ButtonRole role = ui->buttonBox->buttonRole( button );
+    const QDialogButtonBox::ButtonRole role = ui->buttonBox->buttonRole( button );
     switch ( role )
     {
     case QDialogButtonBox::ApplyRole:
@@ -108,61 +79,23 @@ void MainWindow::on_buttonBox_clicked(QAbstractButton * button)
     }
 }
 void MainWindow::sl_tick()
-{
-/*
-if (!ExitWindowsEx(EWX_LOGOFF, 0))
-ShowMessage("Не удалось сменить пользователя");
-Смена пользователя - единственный режим, не требующий особых привилегий. Все остальные режимы не будут выполняться, если приложение не имеет соответствующих привилегий. Например, оператор
-if (!ExitWindowsEx(EWX_REBOOT, 0))
-ShowMessage("Не удалось перезагрузить компьютер");
-*/
+{   
     int index = ui->options->currentIndex();
-    Option option = static_cast < Option > ( ui->options->itemData( index ).toInt() );
-    switch ( option )
-    {
-    case ToQuitProgram:
+    int option = ui->options->itemData( index ).toInt();
+    if ( option == ToQuitProgram )
     {
         emit about_QuitProgram();
         close();
-        break;
-    }
 
-    case Force:
+    } else
     {
-        ExitWindowsEx( EWX_FORCE, 0 );
-        break;
-    }
-
-    case PowerOff:
-    case Reboot:
-    case Shutdown:
-    {
-        SystemControl( option );
-        break;
-    }
-
-    case LogOff:
-    {
-        ExitWindowsEx( EWX_LOGOFF, 0 );
-        break;
-    }
-
-    case ScreenOff:
-    {
-/*
-//Погасить монитор:
-SendMessage(Application->Handle, WM_SYSCOMMAND, SC_MONITORPOWER, 0);
-//Перевести монитор в состояние Low Power:
-SendMessage(Application->Handle, WM_SYSCOMMAND, SC_MONITORPOWER, 1);
-//Перевести монитор в состояние Power Off:
-SendMessage(Application->Handle, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
-//Активировать монитор:
-SendMessage(Application->Handle, WM_SYSCOMMAND, SC_MONITORPOWER, -1);
-*/
-        SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
-        break;
-    }
-
+        WinSystemCommand::Command command = static_cast < WinSystemCommand::Command > ( option );
+        bool successful = WinSystemCommand::execute( command );
+        if ( !successful )
+        {
+            const QString & message = WinSystemCommand::getTextError( command );
+            QMessageBox::warning( this, tr( "Warning" ), message );
+        }
     }
 }
 

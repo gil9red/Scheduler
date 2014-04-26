@@ -6,10 +6,12 @@ TEMPLATE = app
 DESTDIR = ../bin
 
 SOURCES += main.cpp\
-        mainwindow.cpp
+        mainwindow.cpp \
+    winsystemcommand.cpp
 
 HEADERS  += mainwindow.h \
-    appinfo.h
+    appinfo.h \
+    winsystemcommand.h
 
 FORMS    += mainwindow.ui
 
